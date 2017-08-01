@@ -32,6 +32,8 @@ import numpy as np
 import scipy.integrate as integrate
 from leafGeometry import leafGeometry
 
+#import warnings
+#warnings.filterwarnings("error")
 
 class canopyStructure( ):
 
@@ -54,6 +56,12 @@ class canopyStructure( ):
 class canopyLayer(leafGeometry,canopyStructure):
 
   def __init__(self,mu):
+    """Define the optical properties for a single canopy
+    layer using the Meador and Weaver two stream equations
+    
+    Includes a number of options for calculating the upscatter
+    parameters.
+    """
     
     leafGeometry.__init__(self)
     canopyStructure.__init__(self)
@@ -61,7 +69,7 @@ class canopyLayer(leafGeometry,canopyStructure):
     self.mu=mu
     self.leaf_r=0.1
     self.leaf_t=0.1
-    self.lai=2.0    
+    self.lai=.2    
     
     self.setupJULES()
 
@@ -73,6 +81,7 @@ class canopyLayer(leafGeometry,canopyStructure):
   @property
   def d(self):
     return self.leaf_r-self.leaf_t  
+
 
   def setupJULES(self):
     """
@@ -358,8 +367,13 @@ class canopyLayer(leafGeometry,canopyStructure):
     B=self.B_diffuse()
     B0=self.B_direct()
     
-    g1=2.-(1.-B)*self.w*2.
-    g2=2.*self.w*B
+    #g1=2.-(1.-B)*self.w*2.
+    #g2=2.*self.w*B
+    
+    g1=1./self.G(self.mu)-(1.-B)*self.w/self.G(self.mu)
+    g2=1./self.G(self.mu)*self.w*B
+    
+    
     g3=B0
     g4=1.-g3
     
@@ -391,7 +405,6 @@ class canopyLayer(leafGeometry,canopyStructure):
     F=(1.+k*self.mu)*(a1+k*g4)*np.exp(k*tau)
     G=(1.-k*self.mu)*(a1-k*g4)*np.exp(-k*tau)
     H=2.*k*(g4+a1*self.mu)*np.exp(tau/self.mu)
-
     T=np.exp(-tau/self.mu)*(1.-self.w/D*(F-G-H))
     
     return R,T
@@ -576,18 +589,28 @@ class layeredCanopy(object):
         
     
 if __name__=="__main__":
-
+  """This is simple a test to make sure the vertical distribution
+  of fluxes in the canopy is the same as those in the Sellers model 
+  """
+  
   from sellersTwoStream import twoStream
 
-  mu=0.6
+  mu=1.0
   nLayers=10
   c=layeredCanopy(nLayers,mu)
+  
+  for L in xrange(nLayers):
+    c.layers[L].JULES_lad='horizontal'
+
+
     
-  c.lower_boundary_r=0.01
-  c.propDif=0.5
+  c.lower_boundary_r=0.1
+  c.propDif=0.0
   c.getFluxes()
     
   t=twoStream()
+  t.JULES_lad=c.layers[0].JULES_lad
+  
   t.nLayers=nLayers
   t.lai=c.layers[0].lai*nLayers
   t.propDif=c.propDif
@@ -597,6 +620,10 @@ if __name__=="__main__":
   t.soil_r=c.lower_boundary_r
   #t.userLayerLAIMap=False
   Iup, Idn, Iab, Iab_dLai = t.getFluxes()
+
+  print c.layers[0].JULES_lad, c.layers[0].G(mu), c.layers[0].B_direct(), c.layers[0].B_diffuse()
+  print t.JULES_lad, t.G(mu), t.B_direct(), t.B_diffuse()
+
   
   space="    "
   for L in xrange(nLayers):
