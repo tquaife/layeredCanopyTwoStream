@@ -64,25 +64,25 @@ class leafGeometry( ):
     """Planophile distribution from Bunnik.
     """
     theta=np.arccos(mu)
-    return 2./np.pi*(1+np.cos(2*theta))
+    return 2./np.pi*(1.+np.cos(2.*theta))
 
   def gDash_bunnik_erectophile(self, mu):
     """Erectophile distribution from Bunnik.
     """
     theta=np.arccos(mu)
-    return 2./np.pi*(1-np.cos(2*theta))
+    return 2./np.pi*(1.-np.cos(2.*theta))
 
   def gDash_bunnik_plagiophile(self, mu):
     """Plagiophile distribution from Bunnik.
     """
     theta=np.arccos(mu)
-    return 2./np.pi*(1-np.cos(4*theta))
+    return 2./np.pi*(1.-np.cos(4.*theta))
 
   def gDash_bunnik_extremophile(self, mu):
     """Extremophile distribution from Bunnik.
     """
     theta=np.arccos(mu)
-    return 2./np.pi*(1+np.cos(4*theta))
+    return 2./np.pi*(1.+np.cos(4.*theta))
 
 
   def rossPsi(self, muL, mu):
