@@ -74,6 +74,8 @@ class canopyLayer(leafGeometry,canopyStructure):
     self.gamma_scaling_diffuse="delta"    
     self.gamma_scaling_direct="delta"    
     
+    self.setupJULES()
+
 
   @property
   def w(self):
@@ -83,6 +85,69 @@ class canopyLayer(leafGeometry,canopyStructure):
   def d(self):
     return self.leaf_r-self.leaf_t  
   
+  
+
+  def setupJULES(self):
+    """
+    Wire-up the methods so that the flux
+    is calculated as in the JULES code
+    """
+
+    self.Z=self.zeta_noStruct
+    self.G=self.G_JULES
+    self.K=self.K_JULES
+    self.muBar=self.muBar_JULES
+    self.B_direct=self.B_direct_JULES  
+    self.B_diffuse=self.B_diffuse_JULES  
+
+
+  def setupCLM(self, chiL):
+    """
+    Wire-up the methods so that the flux
+    is calculated as in the CLM code
+    """
+    self.CLM_chiL=chiL
+    self.Z=self.zeta_noStruct
+    self.G=self.G_CLM
+    self.K=self.K_CLM
+    self.muBar=self.muBar_CLM
+    self.B_direct=self.B_direct_CLM  
+    self.B_diffuse=self.B_diffuse_CLM  
+
+
+      
+  # ========================================
+  # K methods ==============================
+  # ========================================
+
+  def __K(self):
+    """
+    Private method containing the common parts
+    of the calculation of K
+    """
+    return self.G(self.mu)/self.mu
+
+  def K_generic(self):
+    """
+    Optical depth per unit leaf area in the
+    direction mu calculated for an arbitrary 
+    G/GZ function 
+    """
+    return self.__K()*self.Z(self.mu)
+
+  def K_JULES(self):
+    """
+    Optical depth per unit leaf area in the
+    direction mu as calculated in JULES
+    """
+    return self.__K()
+  
+  def K_CLM(self):
+    """
+    Optical depth per unit leaf area in the
+    direction mu as calculated in CLM
+    """
+    return self.__K()
   
 
   # ========================================
@@ -103,6 +168,7 @@ class canopyLayer(leafGeometry,canopyStructure):
     return -2/(b*b) * ((a+b)*np.log(a/(a+b))+b)
 
 
+
   def muBar_generic(self):
     """
     Average inverse diffuse optical depth per unit leaf area
@@ -110,21 +176,174 @@ class canopyLayer(leafGeometry,canopyStructure):
     """
     out=integrate.quadrature( self.__muBar_generic_integ,0,1,vec_func=False)
     return out[0] 
-
     
   def __muBar_generic_integ(self,muDash):
     """
     Private method to be integrated to find muBar
     """
-    #return muDash/(self.G(muDash)*self.Z(muDash))
-    return muDash/(self.G(muDash))
+    return muDash/(self.G(muDash)*self.Z(muDash))
   
+
+  def muBar_CLM(self):  
+    """
+    Average inverse diffuse optical depth per unit leaf area
+    as calculated in the CLM implementation 
+    """
+  
+    p1=self.CLM_phi1()
+    p2=self.CLM_phi2()
+    
+    return 1./p2*(1.-p1/p2*np.log((p1+p2)/p1))
+
+
+  def muBar_JULES(self):
+    """
+    Average inverse diffuse optical depth per unit leaf area
+    as calculated in the JULES implementation 
+    
+    n.b. is unity in both cases
+    """
+    
+    if self.JULES_lad=='uniform':
+      return 1.0
+    elif self.JULES_lad=='horizontal':
+      return 1.0
+    else:
+      raise Exception, 'Unknown JULES leaf angle ditribution: '%self.JULES_lad
+
+
+  # ========================================
+  # Volume single scattering albedo ========
+  # ========================================
+
+
+  def volssa_uniformG_pintyZ_analytic(self):
+    """
+    Analytical solution for the single scattering 
+    albedo for a uniform leaf angle distribution and the Pinty
+    Zeta function. Only valid for a>0 and b>=0. 
+    """
+
+    mu=self.mu
+    a=self.pinty_a
+    b=self.pinty_b
+    w=self.leaf_r+self.leaf_t
+        
+    f=self.zeta_pinty(mu)
+    g=f-mu*b
+    h=mu*a+mu*b
+        
+    return w/2.*f*(h*np.log(h/(g+h))+g)/(g*g)    
+    
+
+  def volssa_generic(self):
+    """
+    The volume single scattering albedo for any
+    G and Zeta function
+    
+    See eqn 5 & 7 of Sellers 1985
+    """
+    out=integrate.quadrature( self.__volssa_generic_integ,0,1,vec_func=False)
+    return out[0]*(self.leaf_r+self.leaf_t)*0.5
+
+    
+  def __volssa_generic_integ(self,muDash):
+    """
+    Private method which is integrated to find single scattering albedo
+    """
+    mu=self.mu
+    t1=muDash*(self.G(mu)*self.Z(mu))
+    t2=mu*(self.G(muDash)*self.Z(muDash))+muDash*(self.G(mu)*self.Z(mu))
+
+    return t1/t2
+
+
+  def volssa_CLM(self):
+    """
+    The volume single scattering albedo as defined
+    in CLM. Eqn 3.15 in TechNote 4.
+    """
+    
+    w=self.leaf_r+self.leaf_t
+    G=self.G(self.mu)
+    
+    p1=self.CLM_phi1( )
+    p2=self.CLM_phi2( )
+    
+    t1=w/2.
+    t2=G/(self.mu*p2+G)
+    t3=self.mu*p1/(self.mu*p2+G)
+    t4=np.log((self.mu*p1+self.mu*p2+G)/(self.mu*p1))
+
+    return t1*t2*(1.-t3*t4)
+
+
+  def volssa_JULES(self):
+    """
+    The volume single scattering albedo as defined
+    in JULES.     
+    """
+
+    w=self.leaf_r+self.leaf_t
+
+    if self.JULES_lad=='uniform':
+      return 0.5*w*(1.-self.mu*np.log((self.mu+1.)/self.mu))
+    elif self.JULES_lad=='horizontal':
+      return w/4.
+    else:
+      raise Exception, 'Unknown JULES leaf angle ditribution: '%self.JULES_lad
+
 
 
 
   # ========================================
   # Direct upscatter methods ===============
   # ========================================
+
+  def B_direct_CLM(self):
+    """
+    Direct upscatter parameter as defined in CLM
+    """
+    ssa=self.volssa_CLM()
+    return self.B_direct_Dickinson(ssa)
+
+
+  def B_direct_JULES(self):
+    """
+    Direct upscatter parameter as defined in JULES
+    """
+    ssa=self.volssa_JULES()
+    return self.B_direct_Dickinson(ssa)
+
+
+  def B_direct_Dickinson_generic_ssa(self):
+    """
+    Direct upscatter parameter as defined by Dickinson
+    but using a generic formulation for the SSA
+    """
+    ssa=self.volssa_generic()
+    return self.B_direct_Dickinson(ssa)
+
+
+  def B_direct_Dickinson_volssa_uniformG_pintyZ_analytic(self):
+    """
+    Direct upscatter parameter as defined by Dickinson
+    but using a generic formulation for the SSA
+    """
+    ssa=self.volssa_uniformG_pintyZ_analytic()
+    return self.B_direct_Dickinson(ssa)
+
+
+
+  def B_direct_Dickinson(self,ssa):
+    """
+    Direct upscatter parameter as defined by Dickinson
+    both JULES and CLM use this formulation but differ
+    in the calculation of the single scattering albedo.
+    """
+
+    w=self.leaf_r+self.leaf_t
+    return (1./w)*ssa*(1.+self.muBar()*self.K())/(self.muBar()*self.K())
 
   
   def B_direct_generic(self):
@@ -136,8 +355,7 @@ class canopyLayer(leafGeometry,canopyStructure):
     d=self.leaf_r-self.leaf_t  
     intg=self.integ_cosSq_gDash()
 
-    #return (0.5/w)*(w+d*self.mu/(self.G(self.mu)*self.Z(self.mu))*intg)
-    return (0.5/w)*(w+d*self.mu/(self.G(self.mu))*intg)
+    return (0.5/w)*(w+d*self.mu/(self.G(self.mu)*self.Z(self.mu))*intg)
     
     
   def integ_cosSq_gDash(self):
@@ -163,6 +381,33 @@ class canopyLayer(leafGeometry,canopyStructure):
   # ========================================
 
 
+  def B_diffuse_CLM(self):
+    """
+    The Diffuse upscatter as calculated in CLM
+    as a function of chiL
+    """    
+    w=self.leaf_r+self.leaf_t
+    d=self.leaf_r-self.leaf_t
+    
+    return (0.5*(w+d*((1.+self.CLM_chiL)/2.)**2.))/w
+
+
+  def B_diffuse_JULES(self):
+    """
+    The Diffuse upscatter as calculated in JULES
+    """    
+    w=self.leaf_r+self.leaf_t
+    d=self.leaf_r-self.leaf_t
+    if self.JULES_lad=='uniform':
+      sqcost=1./3.
+    elif self.JULES_lad=='horizontal':
+      sqcost=1.0
+    else:
+      raise Exception, 'Unknown JULES leaf angle ditribution: '%self.JULES_lad
+    
+    return 0.5*(w+d*sqcost)/w
+
+
   def B_diffuse_generic(self):
     """
     Compute the diffuse upscatter according to Pinty et al. 2006
@@ -175,8 +420,8 @@ class canopyLayer(leafGeometry,canopyStructure):
 
 
   # ========================================
-  # Gamma coefficients for the Meador ======
-  # and Weaver soultions ===================
+  # Gamma coefficients and the Meador ======
+  # and Weaver two-stream soultions ========
   # ========================================
 
 
@@ -191,7 +436,6 @@ class canopyLayer(leafGeometry,canopyStructure):
     
     if method=="delta":    
       scale=1./(self.G(self.mu)*self.muBar())
-      #scale=1./(self.G(self.mu)*self.muBar_uniformG_pintyZ_analytic())      
     elif method=="quad": 
       #modified quadrature
       scale=np.sqrt(3.)
@@ -216,8 +460,6 @@ class canopyLayer(leafGeometry,canopyStructure):
 
     tau=self.lai*self.G(self.mu)*self.Z(self.mu)
     tauD=tau
-    #muBar=self.muBar_uniformG_pintyZ_analytic()
-    #tauD=self.lai/muBar
     
     a1=g1*g4+g2*g3
     a2=g1*g3+g2*g4
@@ -422,47 +664,7 @@ class layeredCanopy(object):
         
     
 if __name__=="__main__":
-  """This is simple a test to make sure the vertical distribution
-  of fluxes in the canopy is the same as those in the Sellers model 
-  """
-  
-  from sellersTwoStream import twoStream
-
-  mu=1.0
-  nLayers=10
-  c=layeredCanopy(nLayers,mu)
-  
-  for L in xrange(nLayers):
-    c.layers[L].JULES_lad='horizontal'
-
-
-    
-  c.lower_boundary_r=0.1
-  c.propDif=0.0
-  c.getFluxes()
-    
-  t=twoStream()
-  t.JULES_lad=c.layers[0].JULES_lad
-  
-  t.nLayers=nLayers
-  t.lai=c.layers[0].lai*nLayers
-  t.propDif=c.propDif
-  t.mu=c.mu
-  t.leaf_r=c.layers[0].leaf_r
-  t.leaf_t=c.layers[0].leaf_t
-  t.soil_r=c.lower_boundary_r
-  #t.userLayerLAIMap=False
-  Iup, Idn, Iab, Iab_dLai = t.getFluxes()
-
-  print c.layers[0].JULES_lad, c.layers[0].G(mu), c.layers[0].B_direct(), c.layers[0].B_diffuse()
-  print t.JULES_lad, t.G(mu), t.B_direct(), t.B_diffuse()
-
-  
-  space="    "
-  for L in xrange(nLayers):
-    print "Iup[%d]"%L, c.layers[L].Iup, Iup[L],   space, c.layers[L].Iup-Iup[L]
-    print "Idn[%d]"%L, c.layers[L].Idn, Idn[L+1], space, c.layers[L].Idn-Idn[L+1]
-    print "Iab[%d]"%L, c.layers[L].Iab, Iab[L+1], space, c.layers[L].Iab-Iab[L+1]
+    pass
   
 
   
